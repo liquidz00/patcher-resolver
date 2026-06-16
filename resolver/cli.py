@@ -1,8 +1,9 @@
 """
-CLI for the shadow resolver.
+CLI for the resolver.
 
-    python -m resolver.cli run-once    # run a resolution now (writes NDJSON, no POST)
-    python -m resolver.cli schedule    # daily schedule at 04:30 UTC (before the GitHub job)
+    python -m resolver.cli run-once                  # resolve the full set now (writes NDJSON)
+    python -m resolver.cli run-once --label firefox  # resolve only these label(s)
+    python -m resolver.cli schedule                  # create the daily 04:30 UTC schedule
 """
 
 import argparse
@@ -17,17 +18,18 @@ from temporalio.client import (
 )
 
 from resolver.config import get_settings
-from resolver.workflows import ShadowResolve
+from resolver.workflows import ResolveCatalog
 
-_SCHEDULE_ID = "patcher-resolver-shadow"
+_SCHEDULE_ID = "patcher-resolver-daily"
 
 
-async def _run_once() -> None:
+async def _run_once(labels: list[str] | None) -> None:
     settings = get_settings()
     client = await Client.connect(settings.temporal_address)
     result = await client.execute_workflow(
-        ShadowResolve.run,
-        id=f"shadow-resolve-{uuid.uuid4()}",
+        ResolveCatalog.run,
+        labels,
+        id=f"resolve-{uuid.uuid4()}",
         task_queue=settings.temporal_task_queue,
     )
     print(result)
@@ -40,25 +42,32 @@ async def _schedule() -> None:
         _SCHEDULE_ID,
         Schedule(
             action=ScheduleActionStartWorkflow(
-                ShadowResolve.run,
-                id="shadow-resolve",
+                ResolveCatalog.run,
+                None,
+                id="resolve-daily",
                 task_queue=settings.temporal_task_queue,
             ),
             spec=ScheduleSpec(cron_expressions=["30 4 * * *"]),
         ),
     )
-    print(f"Schedule '{_SCHEDULE_ID}' created: ShadowResolve daily at 04:30 UTC.")
+    print(f"Schedule '{_SCHEDULE_ID}' created: ResolveCatalog daily at 04:30 UTC.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="patcher-resolver")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("run-once", help="Resolve now (writes NDJSON, no POST).")
+    run_parser = sub.add_parser("run-once", help="Resolve now (writes NDJSON).")
+    run_parser.add_argument(
+        "--label",
+        dest="labels",
+        action="append",
+        help="Resolve only this label (repeatable). Omit to resolve the full set.",
+    )
     sub.add_parser("schedule", help="Create the daily 04:30 UTC schedule.")
 
     args = parser.parse_args()
     if args.command == "run-once":
-        asyncio.run(_run_once())
+        asyncio.run(_run_once(args.labels))
     elif args.command == "schedule":
         asyncio.run(_schedule())
 

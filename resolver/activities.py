@@ -18,5 +18,10 @@ async def fetch_worklist() -> list[str]:
 
 
 @activity.defn
-async def resolve_to_file(labels: list[str], stamp: str) -> dict:
-    return await asyncio.to_thread(resolve.resolve_to_file, labels, stamp)
+async def resolve_label(label: str) -> dict:
+    return await asyncio.to_thread(resolve.resolve_label, label)
+
+
+@activity.defn
+async def write_results(results: list[dict], stamp: str) -> dict:
+    return await asyncio.to_thread(resolve.write_results, results, stamp)

@@ -1,10 +1,11 @@
 """
-The resolution pipeline itself: refresh Installomator, fetch the worklist, run
-``resolveLabel.sh``, and write the NDJSON. Pure I/O; the Temporal activities are
-thin wrappers around these. This is the code that becomes production once the
-shadow comparison checks out (the only change then is POSTing instead of writing).
+The resolution pipeline: refresh Installomator, fetch the macOS worklist from the
+API, run ``sweep.sh`` per label on this Mac, and write the results. Pure I/O; the
+Temporal activities are thin wrappers around these. Writing locally is the first
+cut; the production change is POSTing the results to the API instead.
 """
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -34,7 +35,12 @@ def update_installomator() -> str:
 
 
 def fetch_worklist() -> list[str]:
-    """GET the labels the Linux resolver couldn't resolve (the macOS worklist)."""
+    """
+    The macOS worklist from ``GET /admin/labels/unresolved``: labels with a
+    dynamic field the Linux resolver couldn't fill, plus labels macOS already
+    owns (re-resolved each run to stay fresh). Scopes the Mini to what Linux
+    genuinely can't do rather than the whole catalog.
+    """
     settings = get_settings()
     response = httpx.get(
         f"{settings.api_base_url}/admin/labels/unresolved",
@@ -45,42 +51,41 @@ def fetch_worklist() -> list[str]:
     return response.json()["labels"]
 
 
-def _run_resolver(labels: list[str]) -> str:
-    """Run ``resolveLabel.sh --json`` over the worklist; return the NDJSON."""
-    if not labels:
-        return ""
+def resolve_label(label: str) -> dict:
+    """
+    Resolve one label with ``sweep.sh`` and return its result object.
+
+    ``sweep.sh`` prints a JSON array grouped by label (one element here, since we
+    pass a single label) to stdout, with per-resolution progress on stderr. A
+    null ``downloadURL`` / ``appNewVersion`` is a valid result, not a failure;
+    only a non-zero exit or unparseable output raises, and Temporal retries it.
+    """
     settings = get_settings()
-    # Inherit the real environment (PATH/HOME for arch, osascript, hdiutil, curl)
-    # and overlay what the script and Installomator's *FromGit helpers expect.
+    # Inherit the real environment (PATH/HOME for arch, hdiutil, curl) and overlay
+    # the GitHub token Installomator's *FromGit helpers need for the api.github.com limit.
     env = {
         **os.environ,
-        "INSTALLOMATOR_DIR": settings.installomator_dir,
         "GITHUB_TOKEN": settings.github_token,
         "GH_TOKEN": settings.github_token,
     }
     result = subprocess.run(
-        ["/bin/zsh", "--no-rcs", settings.resolve_label_script, "--json", "--jobs", "8", *labels],
+        ["/bin/zsh", "--no-rcs", settings.resolve_label_script, label],
         env=env,
         check=True,
         capture_output=True,
         text=True,
-        timeout=settings.resolve_timeout_minutes * 60,
+        timeout=settings.label_timeout_minutes * 60,
     )
-    return result.stdout
+    grouped = json.loads(result.stdout)
+    return grouped[0] if grouped else {"label": label, "results": []}
 
 
-def resolve_to_file(labels: list[str], stamp: str) -> dict:
-    """
-    Resolve the worklist and write the NDJSON to a timestamped file.
-
-    Returns only the path and resolved count — the NDJSON itself stays inside the
-    activity and never crosses into Temporal's workflow history (where it would
-    blow the payload-size limit).
-    """
-    ndjson = _run_resolver(labels)
+def write_results(results: list[dict], stamp: str) -> dict:
+    """Write the per-label results to a timestamped NDJSON file; return path + count."""
     out_dir = _work_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"mini-{stamp}.ndjson"
-    path.write_text(ndjson)
-    resolved = len([line for line in ndjson.splitlines() if line.strip()])
-    return {"ndjson_path": str(path), "resolved": resolved}
+    with path.open("w") as file:
+        for record in results:
+            file.write(json.dumps(record) + "\n")
+    return {"ndjson_path": str(path), "resolved": len(results)}

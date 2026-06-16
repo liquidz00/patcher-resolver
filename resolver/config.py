@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     temporal_address: str = "localhost:7233"
     temporal_task_queue: str = "patcher-resolver"
 
-    resolve_timeout_minutes: int = 120
+    concurrency: int = 8
+    label_timeout_minutes: int = 10
     work_dir: str = "~/.patcher-resolver"
 
 
