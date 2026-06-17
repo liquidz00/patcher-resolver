@@ -1,0 +1,12 @@
+#!/bin/zsh
+# shellcheck disable=SC1071
+# Authenticate api.github.com calls during sweeps so one host doesn't trip GitHub's
+# 60-req/hr/IP limit. Scoped to GitHub only — every other request passes through clean.
+
+token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+
+if [[ -n "$token" && "$*" == *api.github.com* ]]; then
+    exec /usr/bin/curl --header "Authorization: Bearer $token" "$@"
+fi
+
+exec /usr/bin/curl "$@"

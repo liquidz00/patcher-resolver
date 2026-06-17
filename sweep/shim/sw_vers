@@ -1,0 +1,23 @@
+#!/bin/zsh
+# shellcheck disable=SC1071
+# Mock sw_vers for arch/OS label-resolution sweeps.
+# Reads FAKE_OS_PRODUCT / FAKE_OS_BUILD; with neither set, defers to the real tool.
+
+product="${FAKE_OS_PRODUCT:-}"
+build="${FAKE_OS_BUILD:-23G93}"
+
+if [[ -z "$product" ]]; then
+    exec /usr/bin/sw_vers "$@"
+fi
+
+case "$1" in
+    -productVersion) print -r -- "$product" ;;
+    -buildVersion)   print -r -- "$build" ;;
+    -productName)    print -r -- "macOS" ;;
+    "")
+        printf 'ProductName:\t\tmacOS\n'
+        printf 'ProductVersion:\t\t%s\n' "$product"
+        printf 'BuildVersion:\t\t%s\n' "$build"
+        ;;
+    *) exec /usr/bin/sw_vers "$@" ;;
+esac

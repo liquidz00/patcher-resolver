@@ -63,12 +63,13 @@ def resolve_label(label: str) -> dict:
     only a non-zero exit or unparseable output raises, and Temporal retries it.
     """
     settings = get_settings()
-    # Inherit the real environment (PATH/HOME for arch, hdiutil, curl) and overlay
-    # the GitHub token Installomator's *FromGit helpers need for the api.github.com limit.
+    # Inherit the real environment (PATH/HOME for arch, hdiutil, curl); overlay the
+    # GitHub token (api.github.com limit) and the Installomator checkout sweep.sh reads.
     env = {
         **os.environ,
         "GITHUB_TOKEN": settings.github_token,
         "GH_TOKEN": settings.github_token,
+        "INSTALLOMATOR_DIR": settings.installomator_dir,
     }
     result = subprocess.run(
         ["/bin/zsh", "--no-rcs", settings.resolve_label_script, label],
