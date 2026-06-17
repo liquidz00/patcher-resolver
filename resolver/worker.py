@@ -1,6 +1,7 @@
 """Temporal worker: registers the workflow and activities, then serves."""
 
 import asyncio
+import logging
 
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -11,6 +12,7 @@ from resolver.workflows import ResolveCatalog
 
 
 async def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = get_settings()
     client = await Client.connect(settings.temporal_address)
     worker = Worker(
@@ -22,6 +24,7 @@ async def main() -> None:
             activities.fetch_worklist,
             activities.resolve_label,
             activities.write_results,
+            activities.publish_results,
         ],
         max_concurrent_activities=settings.concurrency,
     )

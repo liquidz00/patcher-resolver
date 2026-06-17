@@ -1,11 +1,12 @@
 """
 The resolution workflow.
 
-``ResolveCatalog`` refreshes Installomator, resolves the label set on this Mac
+``ResolveCatalog`` refreshes Installomator, resolves the worklist on this Mac
 (one ``resolve_label`` activity per label, fanned out with the worker capping how
-many run at once), and writes the results locally. Activities are referenced by
-name so this module stays free of the subprocess imports the workflow sandbox
-would reject.
+many run at once), writes the results locally, and — unless ``publish`` is False
+— POSTs the arm64-canonical values back to the API. Activities are referenced by
+name so this module stays free of the subprocess/httpx imports the workflow
+sandbox would reject.
 """
 
 import asyncio
@@ -21,7 +22,7 @@ _LABEL_RETRY = RetryPolicy(maximum_attempts=2)
 @workflow.defn
 class ResolveCatalog:
     @workflow.run
-    async def run(self, labels: list[str] | None = None) -> dict:
+    async def run(self, labels: list[str] | None = None, publish: bool = True) -> dict:
         head = await workflow.execute_activity(
             "update_installomator",
             start_to_close_timeout=timedelta(minutes=5),
@@ -33,6 +34,7 @@ class ResolveCatalog:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=_RETRY,
             )
+        workflow.logger.info("resolving %d labels", len(labels))
 
         # One activity per label, fanned out; the worker caps how many run at once
         # (settings.concurrency). return_exceptions keeps a label that fails all its
@@ -59,4 +61,14 @@ class ResolveCatalog:
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=_RETRY,
         )
-        return {"installomator": head, "labels": len(labels), "failed": failed, **summary}
+        outcome = {"installomator": head, "labels": len(labels), "failed": failed, **summary}
+
+        if publish:
+            outcome["ingest"] = await workflow.execute_activity(
+                "publish_results",
+                results,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=_RETRY,
+            )
+        workflow.logger.info("run complete: %s", outcome)
+        return outcome

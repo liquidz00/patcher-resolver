@@ -1,8 +1,8 @@
 """
 The resolution pipeline: refresh Installomator, fetch the macOS worklist from the
-API, run ``sweep.sh`` per label on this Mac, and write the results. Pure I/O; the
-Temporal activities are thin wrappers around these. Writing locally is the first
-cut; the production change is POSTing the results to the API instead.
+API, run ``sweep.sh`` per label on this Mac, write the results, and publish the
+arm64-canonical values back to the API. Pure I/O; the Temporal activities are
+thin wrappers around these.
 """
 
 import json
@@ -13,6 +13,8 @@ from pathlib import Path
 import httpx
 
 from resolver.config import get_settings
+
+_PRIMARY_ARCH = "arm64"  # canonical arch when a label resolves per-arch; the x86_64 URL is dropped
 
 
 def _work_dir() -> Path:
@@ -89,3 +91,51 @@ def write_results(results: list[dict], stamp: str) -> dict:
         for record in results:
             file.write(json.dumps(record) + "\n")
     return {"ndjson_path": str(path), "resolved": len(results)}
+
+
+def _pick_result(results: list[dict]) -> dict | None:
+    """
+    Collapse a label's per-axis results to one, arm64-canonical.
+
+    Prefer the ``arm64`` result; fall back to ``any`` (labels that don't branch
+    on arch resolve once) or the first result. The ``x86_64`` URL is dropped on
+    purpose — the catalog is single-URL and the arch-aware install happens in
+    Installomator at runtime.
+    """
+    by_arch = {result.get("arch"): result for result in results}
+    return by_arch.get(_PRIMARY_ARCH) or by_arch.get("any") or (results[0] if results else None)
+
+
+def _to_resolved_record(grouped: dict) -> dict:
+    """One ``sweep.sh`` per-label result -> the flat record ``/admin/labels/resolved`` ingests."""
+    chosen = _pick_result(grouped.get("results") or [])
+    download_url = chosen.get("downloadURL") if chosen else None
+    app_new_version = chosen.get("appNewVersion") if chosen else None
+    return {
+        "label": grouped.get("label"),
+        "ok": bool(download_url or app_new_version),
+        "downloadURL": download_url,
+        "appNewVersion": app_new_version,
+    }
+
+
+def publish_results(results: list[dict]) -> dict:
+    """
+    POST the collapsed records to ``/admin/labels/resolved`` and return the
+    endpoint's ingest summary. Records are arm64-canonical, flat
+    ``resolveLabel.sh``-shaped lines; the endpoint validates each value and
+    updates only labels the Linux ingest already created.
+    """
+    settings = get_settings()
+    body = "\n".join(json.dumps(_to_resolved_record(grouped)) for grouped in results)
+    response = httpx.post(
+        f"{settings.api_base_url}/admin/labels/resolved",
+        headers={
+            "Authorization": f"Bearer {settings.patcher_admin_token}",
+            "Content-Type": "application/x-ndjson",
+        },
+        content=body,
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()
