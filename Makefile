@@ -1,0 +1,48 @@
+SHELL 			:= /bin/bash
+UV 				:= uv
+PYPROJECT 		:= pyproject.toml
+VENV_DIR 		:= .venv
+
+.PHONY: clean install
+
+help:  ## Show this help message
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
+venv:  ## Create virtual environment if missing
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "Creating virtual environment..."; \
+		$(UV) venv; \
+	else \
+		echo "Virtual environment already exists at $(VENV_DIR)"; \
+	fi
+
+install: venv  ## Install base dependencies
+	$(UV) sync
+
+dev: venv  ## Install all dependencies
+	$(UV) sync --all-packages --all-extras
+
+uninstall:  ## Remove the .venv directory
+	rm -rf $(VENV_DIR)
+
+clean:  ## Remove caches, build artifacts, and the .venv
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type d -name .pytest_cache -exec rm -rf {} +
+	find . -type d -name .ruff_cache -exec rm -rf {} +
+	find . -type d -name "*.egg-info" -exec rm -rf {} +
+	rm -rf .venv coverage/ dist/ build/ .coverage htmlcov/ docs/_build/
+
+lint:  ## Check code style with ruff
+	$(UV) run ruff format --check .
+	$(UV) run ruff check .
+
+format:  ## Auto-format code with ruff
+	$(UV) run ruff format .
+	$(UV) run ruff check . --fix
+
+lock:  ## Update uv.lock
+	$(UV) lock
+
+upgrade:  ## Upgrade all dependencies to latest versions
+	$(UV) lock --upgrade
+	$(UV) sync --all-packages --all-extras
