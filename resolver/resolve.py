@@ -22,10 +22,33 @@ def _work_dir() -> Path:
 
 
 def update_installomator() -> str:
-    """``git pull`` the Installomator checkout; return the short HEAD sha."""
+    """
+    Refresh the Installomator checkout and rebuild its script from fragments.
+
+    ``main``'s committed ``Installomator.sh`` lags its own ``fragments/`` (it's
+    reassembled only periodically), so the newest labels exist as fragments the
+    runnable script doesn't yet know. ``assemble.sh -s`` rebuilds it from current
+    fragments; ``reset --hard`` first discards the prior run's rebuilt script so
+    the checkout is clean before fetching. Returns the short HEAD sha.
+    """
     d = get_settings().installomator_dir
     subprocess.run(
-        ["git", "-C", d, "pull", "--ff-only"], check=True, capture_output=True, text=True
+        ["git", "-C", d, "fetch", "origin", "main"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", d, "reset", "--hard", "origin/main"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["/bin/zsh", "--no-rcs", f"{d}/assemble.sh", "-s"],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     head = subprocess.run(
         ["git", "-C", d, "rev-parse", "--short", "HEAD"],
