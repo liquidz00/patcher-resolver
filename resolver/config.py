@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Patcher API
-    api_base_url: str = "https://api.patcherctl.dev"
+    api_base_url: str = "http://localhost:8000"
     patcher_admin_token: str
 
     # GitHub PAT to dodge the api.github.com 60/hr limit Installomator's
