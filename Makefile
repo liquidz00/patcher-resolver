@@ -3,7 +3,7 @@ UV 				:= uv
 PYPROJECT 		:= pyproject.toml
 VENV_DIR 		:= .venv
 
-.PHONY: clean install
+.PHONY: clean install venv
 
 help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -46,3 +46,16 @@ lock:  ## Update uv.lock
 upgrade:  ## Upgrade all dependencies to latest versions
 	$(UV) lock --upgrade
 	$(UV) sync --all-packages --all-extras
+
+pre-commit:  ## Install pre-commit hooks
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "Virtual environment not found. Creating and installing dev dependencies..."; \
+		$(MAKE) dev; \
+	fi
+	$(UV) run pre-commit install
+
+pre-commit-run:  ## Run pre-commit on all files
+	$(UV) run pre-commit run --all-files
+
+pre-commit-update:  ## Update pre-commit hooks to latest versions
+	$(UV) run pre-commit autoupdate
