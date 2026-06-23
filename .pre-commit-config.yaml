@@ -28,3 +28,7 @@ exclude: |
     \.ruff_cache/|
     \.mypy_cache/|
   )$
+
+ci:
+  autofix_commit_msg: "chore(style): auto-format"
+  autoupdate_schedule: monthly
