@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # *FromGit helpers hit during resolution.
     github_token: str
 
-    # Local checkouts on the Mini (kept current with `git pull` each run).
+    # Local checkouts on this host (kept current with `git pull` each run).
     installomator_dir: str
     resolve_label_script: str
 

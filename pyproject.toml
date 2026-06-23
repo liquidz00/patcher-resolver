@@ -1,7 +1,7 @@
 [project]
 name = "patcher-resolver"
 version = "0.1.0"
-description = "Mac Mini macOS Installomator label resolver for Patcher (Temporal)."
+description = "Self-hosted macOS Installomator label resolver for Patcher (Temporal)."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

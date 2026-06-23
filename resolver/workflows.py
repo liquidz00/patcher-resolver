@@ -1,7 +1,7 @@
 """
 The resolution workflow.
 
-``ResolveCatalog`` refreshes Installomator, resolves the worklist on this Mac
+``ResolveCatalog`` refreshes Installomator, resolves the worklist on the macOS host
 (one ``resolve_label`` activity per label, fanned out with the worker capping how
 many run at once), writes the results locally, and — unless ``publish`` is False
 — POSTs the arm64-canonical values back to the API. Activities are referenced by

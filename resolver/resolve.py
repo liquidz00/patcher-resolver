@@ -1,6 +1,6 @@
 """
 The resolution pipeline: refresh Installomator, fetch the macOS worklist from the
-API, run ``sweep.sh`` per label on this Mac, write the results, and publish the
+API, run ``sweep.sh`` per label on the macOS host, write the results, and publish the
 arm64-canonical values back to the API. Pure I/O; the Temporal activities are
 thin wrappers around these.
 """
@@ -63,7 +63,7 @@ def fetch_worklist() -> list[str]:
     """
     The macOS worklist from ``GET /admin/labels/unresolved``: labels with a
     dynamic field the Linux resolver couldn't fill, plus labels macOS already
-    owns (re-resolved each run to stay fresh). Scopes the Mini to what Linux
+    owns (re-resolved each run to stay fresh). Scopes the worker to what Linux
     genuinely can't do rather than the whole catalog.
     """
     settings = get_settings()
