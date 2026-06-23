@@ -2,31 +2,34 @@
 
 A self-hosted macOS worker that resolves [Installomator](https://github.com/Installomator/Installomator) labels for [Patcher](https://github.com/liquidz00/Patcher)'s catalog API.
 
-Many Installomator labels compute their download URL and version with shell that only runs correctly on a real Mac. Patcher's Linux ingest server resolves everything it safely can; the rest needs macOS userspace, and this worker is that macOS half. For the full two-stage design, see Patcher's [Resolution architecture](https://docs.patcherctl.dev/project/architecture/resolution.html). This README covers running the worker yourself.
+Many Installomator labels compute their download URL and version with shell that only runs correctly on a real Mac. Patcher's Linux ingest server resolves everything it can safely. The rest require macOS, and this worker is that half. For the full two-stage design, see Patcher's [Resolution architecture](https://docs.patcherctl.dev/en/latest/project/architecture/resolution.html). This README covers running the worker yourself.
+
+> [!IMPORTANT]
+> This worker is only useful as part of a self-hosted Patcher deployment. It writes into the catalog, which requires admin access that exists solely on a Patcher API you run yourself.
 
 ## How it works
 
 A [Temporal](https://temporal.io) worker stays running on a macOS host. A daily schedule triggers the `ResolveCatalog` workflow, which:
 
 1. Refreshes the local Installomator checkout and rebuilds its script from the current fragments.
-2. Fetches the worklist from the API (`GET /admin/labels/unresolved`): the labels Linux could not resolve, plus the ones macOS already owns.
-3. Runs `sweep.sh` per label, invoking the real `Installomator.sh` in a full macOS userspace and reading back the values it computes.
-4. POSTs the arm64-canonical results to the API (`POST /admin/labels/resolved`).
+2. Fetches the worklist from the API. The worklist is comprised of the labels Linux could not resolve, plus the ones macOS already owns.
+3. Runs `./sweep/sweep.sh` per label, invoking `Installomator.sh` in a full macOS userspace and reading back the values it computes.
+4. POSTs the arm64-canonical results back to the API.
 
-Resolution runs one activity per label, fanned out and capped by `concurrency`. A label that fails its retries is counted, not fatal to the batch.
+Resolution runs one activity per label, fanned out and capped by `concurrency`. A label that fails its retries is counted, but will never cause the batch to fail.
 
 ## Prerequisites
 
-- An always-on **macOS host**. Real macOS userspace is the whole point (codesign, osascript, hdiutil).
+- An always-on **macOS host**. macOS infrastructure is required (`codesign`, `osascript`, `hdiutil`).
 - A reachable **Temporal** service (a local `temporal server start-dev`, or a self-hosted cluster).
 - A local **Installomator checkout** that includes `assemble.sh`.
-- A **Patcher catalog API** you can write to (the hosted `api.patcherctl.dev`, or your own instance) plus its admin token.
+- A **self-hosted Patcher catalog API** that you operate, plus its admin token. The worker writes resolved values into the catalog, which only your own instance grants.
 - A **GitHub PAT**, to avoid the 60 request/hour `api.github.com` limit Installomator's `*FromGit` helpers hit during resolution.
 - **uv** and Python 3.14+.
 
 ## Install
 
-```console
+```bash
 git clone https://github.com/liquidz00/patcher-resolver
 cd patcher-resolver
 make install
@@ -38,42 +41,42 @@ Create a `.env` in the repo root. Field names map to upper-case environment vari
 
 | Key | Required | Default | What it is |
 |-----|----------|---------|------------|
-| `patcher_admin_token` | yes | | Bearer token for the API's `/admin/*` routes. |
+| `patcher_admin_token` | yes | | Admin token for your self-hosted Patcher API. |
 | `github_token` | yes | | GitHub PAT to lift the `api.github.com` rate limit during resolution. |
 | `installomator_dir` | yes | | Path to your Installomator checkout (refreshed each run). |
 | `resolve_label_script` | yes | | Path to `sweep/sweep.sh` in this repo. |
-| `api_base_url` | no | `https://api.patcherctl.dev` | Base URL of the Patcher API to read from and write to. |
+| `api_base_url` | no | `https://api.patcherctl.dev` | Base URL of your Patcher API. Point this at your self-hosted instance. |
 | `temporal_address` | no | `localhost:7233` | Temporal frontend address. |
 | `temporal_task_queue` | no | `patcher-resolver` | Task queue the worker and workflow share. |
 | `concurrency` | no | `8` | Max labels resolved at once. |
 | `label_timeout_minutes` | no | `10` | Per-label timeout. |
 | `work_dir` | no | `~/.patcher-resolver` | Where per-run NDJSON results are written. |
 
-Never commit `.env`. It holds two secrets, the admin token and the GitHub PAT.
-
 ## Running
 
-Start Temporal (skip if one is already reachable):
+1. Start Temporal (skip if one is already reachable):
 
-```console
+```bash
 temporal server start-dev
 ```
 
-Start the worker and leave it running:
+2. Start the worker and leave it running:
 
-```console
+```bash
 uv run python -m resolver.worker
 ```
 
-Register the daily schedule once (04:30 UTC):
+3. Register the daily schedule once (04:30 UTC):
 
-```console
+```bash
 uv run python -m resolver.cli schedule
 ```
 
-Or trigger a run by hand:
+### Manually trigger
 
-```console
+The resolver includes a CLI for one-off or manual invocations.
+
+```bash
 uv run python -m resolver.cli run-once                   # full set, resolve + publish
 uv run python -m resolver.cli run-once --label firefox   # one label (repeatable)
 uv run python -m resolver.cli run-once --no-publish       # resolve and write locally, skip the POST
@@ -81,7 +84,7 @@ uv run python -m resolver.cli run-once --no-publish       # resolve and write lo
 
 ## Keeping the worker always-on
 
-The schedule lives in Temporal, but the worker is just a process, so it needs something to restart it across reboots and crashes. A minimal LaunchAgent (adjust the `uv` path and `WorkingDirectory`):
+The daily schedule lives in Temporal, but the worker that runs it is an ordinary process. To keep it alive across logouts, reboots, and crashes, run it under launchd. Save the following to `~/Library/LaunchAgents/dev.patcher.resolver.worker.plist`, adjusting the `uv` path and `WorkingDirectory` to match your install:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -112,19 +115,21 @@ The schedule lives in Temporal, but the worker is just a process, so it needs so
 </plist>
 ```
 
-Load it with:
+Then load it (this starts the worker now and relaunches it on every boot):
 
-```console
+```bash
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.patcher.resolver.worker.plist
 ```
 
+Confirm it came up with `launchctl print gui/$(id -u)/dev.patcher.resolver.worker`, and watch its output at the log paths you set above.
+
 ## Using your own Patcher API
 
-Point `api_base_url` at your instance. The worker reads `GET /admin/labels/unresolved` and writes `POST /admin/labels/resolved`, both with `patcher_admin_token` as a Bearer token. Those routes are token-gated and fail closed, so the token must match the API's `PATCHER_API_ADMIN_TOKEN`. See Patcher's [self-hosting guide](https://docs.patcherctl.dev/project/self-hosting.html) for the API side.
+To run the full pipeline you self-host the Patcher API. Point `api_base_url` at your instance and use that instance's admin token as `patcher_admin_token`. See Patcher's [self-hosting guide](https://docs.patcherctl.dev/en/latest/project/self-hosting.html) for the API side.
 
 ## Development
 
-```console
+```bash
 make dev        # install with dev extras (ruff)
 make lint       # ruff format --check + ruff check
 make format     # auto-format and fix
