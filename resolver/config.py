@@ -5,8 +5,11 @@ Field names map to upper-case env vars (``patcher_admin_token`` <- ``PATCHER_ADM
 """
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_RESOLVE_SCRIPT = str(Path(__file__).resolve().parent.parent / "sweep" / "sweep.sh")
 
 
 class Settings(BaseSettings):
@@ -22,7 +25,7 @@ class Settings(BaseSettings):
 
     # Local checkouts on this host (kept current with `git pull` each run).
     installomator_dir: str
-    resolve_label_script: str
+    resolve_label_script: str = _DEFAULT_RESOLVE_SCRIPT
 
     temporal_address: str = "localhost:7233"
     temporal_task_queue: str = "patcher-resolver"

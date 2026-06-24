@@ -44,7 +44,7 @@ Create a `.env` in the repo root. Field names map to upper-case environment vari
 | `patcher_admin_token` | yes | | Admin token for your self-hosted Patcher API. |
 | `github_token` | yes | | GitHub PAT to lift the `api.github.com` rate limit during resolution. |
 | `installomator_dir` | yes | | Path to your Installomator checkout (refreshed each run). |
-| `resolve_label_script` | yes | | Path to `sweep/sweep.sh` in this repo. |
+| `resolve_label_script` | no | | Path to `sweep/sweep.sh` in this repo. |
 | `api_base_url` | no | `http://localhost:8000` | Base URL of your Patcher API. Point this at your self-hosted instance. |
 | `temporal_address` | no | `localhost:7233` | Temporal frontend address. |
 | `temporal_task_queue` | no | `patcher-resolver` | Task queue the worker and workflow share. |
